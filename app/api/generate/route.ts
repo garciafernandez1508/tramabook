@@ -16,7 +16,9 @@ Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin markd
       "photo_tip": "consejo para fotografiarlo",
       "best_time": "mejor momento del día",
       "curiosity": "curiosidad única",
-      "emoji": "emoji representativo"
+      "emoji": "emoji representativo",
+      "lat": latitud en número decimal,
+      "lng": longitud en número decimal
     }
   ]
 }`

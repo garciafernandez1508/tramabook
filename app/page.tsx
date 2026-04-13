@@ -1,5 +1,8 @@
 "use client";
 import { useState } from "react";
+import dynamic from "next/dynamic";
+
+const Map = dynamic(() => import("./components/Map"), { ssr: false });
 
 type Place = {
   name: string;
@@ -7,6 +10,8 @@ type Place = {
   best_time: string;
   curiosity: string;
   emoji: string;
+  lat: number;
+  lng: number;
 };
 
 export default function Home() {
@@ -45,7 +50,7 @@ export default function Home() {
         <div className="flex gap-3 mb-12">
           <input
             type="text"
-            placeholder="¿A dónde viajas? Ej: Kioto, Marrakech, Patagonia..."
+            placeholder="¿A dónde viajas? Ej: La Habana, Kioto, Marrakech..."
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && generate()}
@@ -73,6 +78,11 @@ export default function Home() {
             <h2 className="text-2xl font-semibold text-gray-800 mb-6">
               Los 5 mejores lugares para fotografiar en {location}
             </h2>
+
+            <div className="mb-8 rounded-2xl overflow-hidden border border-gray-100">
+              <Map places={places} />
+            </div>
+
             <div className="flex flex-col gap-4">
               {places.map((place, i) => (
                 <div
