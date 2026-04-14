@@ -2,6 +2,8 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import exifr from "exifr";
+import { CoverPreview } from "./components/BookCover";
+import { BookPage } from "./components/BookPage";
 
 const Map = dynamic(() => import("./components/Map"), { ssr: false });
 
@@ -32,6 +34,10 @@ type BookResult = {
   photos: PhotoResult[];
 };
 
+const PAGE_TEMPLATES: Array<"grande" | "lateral" | "inmersiva"> = [
+  "grande", "lateral", "inmersiva", "grande", "lateral",
+];
+
 export default function Home() {
   const [mode, setMode] = useState<"home" | "plan" | "book">("home");
   const [location, setLocation] = useState("");
@@ -42,6 +48,11 @@ export default function Home() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [organize, setOrganize] = useState<"ai" | "date" | "place">("ai");
   const [destination, setDestination] = useState("");
+  const [coverTemplate, setCoverTemplate] = useState<"cine" | "revista" | "minimal">("cine");
+  const [bookTitle, setBookTitle] = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [step, setStep] = useState<"upload" | "cover" | "book">("upload");
+  const [addingMore, setAddingMore] = useState(false);
 
   async function generatePlan() {
     if (!location) return;
@@ -65,6 +76,61 @@ export default function Home() {
     const arr = Array.from(selected);
     setFiles(prev => [...prev, ...arr]);
     setPreviews(prev => [...prev, ...arr.map((f) => URL.createObjectURL(f))]);
+  }
+
+  function removeFile(index: number) {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviews(prev => prev.filter((_, i) => i !== index));
+  }
+
+  async function addMorePhotos(selected: FileList) {
+    const arr = Array.from(selected);
+    const newPreviews = arr.map((f) => URL.createObjectURL(f));
+    const startIndex = files.length;
+
+    setFiles(prev => [...prev, ...arr]);
+    setPreviews(prev => [...prev, ...newPreviews]);
+    setAddingMore(true);
+
+    try {
+      const photosData = await Promise.all(
+        arr.map(async (f) => {
+          try {
+            const gps = await exifr.gps(f);
+            const date = await exifr.parse(f, ["DateTimeOriginal"]);
+            return {
+              name: f.name,
+              lat: gps?.latitude,
+              lng: gps?.longitude,
+              date: date?.DateTimeOriginal?.toString() || null,
+            };
+          } catch {
+            return { name: f.name };
+          }
+        })
+      );
+
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photos: photosData, organize, destination }),
+      });
+      const data = await res.json();
+
+      const newPhotos = (data.photos || []).map((p: PhotoResult) => ({
+        ...p,
+        index: startIndex + p.index,
+      }));
+
+      setBook(prev => prev ? {
+        ...prev,
+        photos: [...prev.photos, ...newPhotos],
+      } : data);
+
+    } catch (e) {
+      console.error(e);
+    }
+    setAddingMore(false);
   }
 
   async function generateBook() {
@@ -95,20 +161,32 @@ export default function Home() {
       });
       const data = await res.json();
       setBook(data);
+      setBookTitle(data.title);
+      setStep("cover");
     } catch (e) {
       console.error(e);
     }
     setLoading(false);
   }
 
+  function resetAll() {
+    setMode("home");
+    setPlaces([]);
+    setBook(null);
+    setFiles([]);
+    setPreviews([]);
+    setDestination("");
+    setStep("upload");
+    setBookTitle("");
+  }
+
   return (
     <main className="min-h-screen bg-white px-6 py-16">
       <div className="max-w-3xl mx-auto">
+
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-gray-900 mb-4">Tramabook</h1>
-          <p className="text-xl text-gray-500 mb-8">
-            Tu compañero de viaje con IA
-          </p>
+          <p className="text-xl text-gray-500 mb-8">Tu compañero de viaje con IA</p>
           {mode === "home" && (
             <div className="flex gap-4 justify-center">
               <button
@@ -126,10 +204,7 @@ export default function Home() {
             </div>
           )}
           {mode !== "home" && (
-            <button
-              onClick={() => { setMode("home"); setPlaces([]); setBook(null); setFiles([]); setPreviews([]); setDestination(""); }}
-              className="text-gray-400 hover:text-gray-600 text-sm"
-            >
+            <button onClick={resetAll} className="text-gray-400 hover:text-gray-600 text-sm">
               ← Volver
             </button>
           )}
@@ -154,13 +229,11 @@ export default function Home() {
                 {loading ? "Buscando..." : "Explorar"}
               </button>
             </div>
-
             {loading && (
               <div className="text-center py-20">
                 <p className="text-gray-400 text-lg">Preparando tu guía de fotografía...</p>
               </div>
             )}
-
             {places.length > 0 && (
               <div>
                 <h2 className="text-2xl font-semibold text-gray-800 mb-6">
@@ -189,7 +262,7 @@ export default function Home() {
           </div>
         )}
 
-        {mode === "book" && (
+        {mode === "book" && step === "upload" && (
           <div>
             <div className="mb-6">
               <input
@@ -200,7 +273,6 @@ export default function Home() {
                 className="w-full border border-gray-200 rounded-2xl px-6 py-4 text-lg outline-none focus:border-gray-400"
               />
             </div>
-
             <div
               className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center mb-6 hover:border-gray-400 transition-colors cursor-pointer"
               onDragOver={(e) => e.preventDefault()}
@@ -226,10 +298,17 @@ export default function Home() {
               <div>
                 <div className="grid grid-cols-4 gap-2 mb-6">
                   {previews.map((src, i) => (
-                    <img key={i} src={src} className="w-full h-24 object-cover rounded-xl" />
+                    <div key={i} className="relative group">
+                      <img src={src} className="w-full h-24 object-cover rounded-xl" />
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   ))}
                 </div>
-
                 <div className="mb-6">
                   <p className="text-gray-600 text-sm font-medium mb-3">Organizar el libro por:</p>
                   <div className="flex gap-3">
@@ -252,7 +331,6 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-
                 <button
                   onClick={generateBook}
                   disabled={loading}
@@ -262,52 +340,144 @@ export default function Home() {
                 </button>
               </div>
             )}
-
             {loading && (
               <div className="text-center py-12">
-                <p className="text-gray-400 text-lg">Claude está analizando tu viaje...</p>
-              </div>
-            )}
-
-            {book && (
-              <div className="mt-8">
-                <h2 className="text-3xl font-bold text-gray-900 mb-2">{book.title}</h2>
-                <p className="text-gray-500 mb-8">{book.summary}</p>
-                {book.photos && book.photos.some(p => p.lat && p.lng) && (
-                  <div className="mb-8 rounded-2xl overflow-hidden border border-gray-100">
-                    <Map places={book.photos.filter(p => p.lat && p.lng).map(p => ({
-                      name: p.place_name,
-                      photo_tip: p.caption,
-                      best_time: "",
-                      curiosity: p.curiosity,
-                      emoji: p.emoji,
-                      lat: p.lat,
-                      lng: p.lng,
-                    }))} />
-                  </div>
-                )}
-                <div className="flex flex-col gap-6">
-                  {book.photos && book.photos.map((photo, i) => (
-                    <div key={i} className="border border-gray-100 rounded-2xl overflow-hidden">
-                      {previews[photo.index] && (
-                        <img src={previews[photo.index]} className="w-full h-64 object-cover" />
-                      )}
-                      <div className="p-6">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-2xl">{photo.emoji}</span>
-                          <h3 className="text-xl font-semibold text-gray-900">{photo.place_name}</h3>
-                          <span className="text-gray-400 text-sm">{photo.country}</span>
-                        </div>
-                        <p className="text-gray-700 italic mb-3">"{photo.caption}"</p>
-                        <p className="text-gray-500 text-sm">✨ {photo.curiosity}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <p className="text-gray-400 text-lg">Tramabook está analizando tu viaje...</p>
               </div>
             )}
           </div>
         )}
+
+        {mode === "book" && step === "cover" && book && (
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-800 mb-2">Elige la portada de tu libro</h2>
+            <p className="text-gray-400 text-sm mb-8">Selecciona el estilo que más te gusta</p>
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              {(["cine", "revista", "minimal"] as const).map((t) => (
+                <CoverPreview
+                  key={t}
+                  template={t}
+                  title={bookTitle}
+                  summary={book.summary}
+                  coverImage={previews[0]}
+                  date={new Date().getFullYear().toString()}
+                  selected={coverTemplate === t}
+                  onClick={() => setCoverTemplate(t)}
+                />
+              ))}
+            </div>
+            <div className="mb-6">
+              <p className="text-gray-600 text-sm font-medium mb-2">Título del libro:</p>
+              <div className="flex gap-3">
+                {editingTitle ? (
+                  <input
+                    value={bookTitle}
+                    onChange={(e) => setBookTitle(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-2xl px-6 py-3 text-lg outline-none focus:border-gray-500"
+                  />
+                ) : (
+                  <p className="flex-1 px-6 py-3 bg-gray-50 rounded-2xl text-lg text-gray-800">{bookTitle}</p>
+                )}
+                <button
+                  onClick={() => setEditingTitle(!editingTitle)}
+                  className="border border-gray-200 px-5 py-3 rounded-2xl text-sm hover:border-gray-400 transition-colors"
+                >
+                  {editingTitle ? "Guardar" : "Editar"}
+                </button>
+              </div>
+            </div>
+            <button
+              onClick={() => setStep("book")}
+              className="w-full bg-black text-white py-4 rounded-2xl text-lg font-medium hover:bg-gray-800 transition-colors"
+            >
+              Ver mi libro completo →
+            </button>
+          </div>
+        )}
+
+        {mode === "book" && step === "book" && book && (
+          <div>
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setStep("cover")}
+                className="text-gray-400 hover:text-gray-600 text-sm"
+              >
+                ← Cambiar portada
+              </button>
+              <button
+                onClick={() => document.getElementById("addMoreInput")?.click()}
+                disabled={addingMore}
+                className="border border-gray-200 text-gray-600 px-5 py-2 rounded-full text-sm hover:border-gray-400 transition-colors disabled:opacity-50"
+              >
+                {addingMore ? "Analizando..." : "+ Añadir fotos"}
+              </button>
+              <input
+                id="addMoreInput"
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => e.target.files && addMorePhotos(e.target.files)}
+              />
+            </div>
+
+            {addingMore && (
+              <div className="text-center py-4 mb-6">
+                <p className="text-gray-400 text-sm">Tramabook está analizando las nuevas fotos...</p>
+              </div>
+            )}
+
+            <div className="mb-10">
+              <CoverPreview
+                template={coverTemplate}
+                title={bookTitle}
+                summary={book.summary}
+                coverImage={previews[0]}
+                date={new Date().getFullYear().toString()}
+                selected={false}
+                onClick={() => setStep("cover")}
+              />
+              <p className="text-center text-xs text-gray-300 mt-2">Haz clic para cambiar portada</p>
+            </div>
+
+            <p className="text-gray-500 mb-10 text-center italic">{book.summary}</p>
+
+            {book.photos && book.photos.some(p => p.lat && p.lng) && (
+              <div className="mb-10 rounded-2xl overflow-hidden border border-gray-100">
+                <Map places={book.photos.filter(p => p.lat && p.lng).map(p => ({
+                  name: p.place_name,
+                  photo_tip: p.caption,
+                  best_time: "",
+                  curiosity: p.curiosity,
+                  emoji: p.emoji,
+                  lat: p.lat,
+                  lng: p.lng,
+                }))} />
+              </div>
+            )}
+
+            <div className="flex flex-col gap-6">
+              {book.photos && book.photos.map((photo, i) => (
+                previews[photo.index] ? (
+                  <BookPage
+                    key={i}
+                    photo={photo}
+                    preview={previews[photo.index]}
+                    pageNumber={i + 1}
+                    template={PAGE_TEMPLATES[i % PAGE_TEMPLATES.length]}
+                  />
+                ) : null
+              ))}
+            </div>
+
+            <div className="mt-12 text-center">
+              <button className="bg-black text-white px-10 py-4 rounded-full text-lg font-medium hover:bg-gray-800 transition-colors">
+                Compartir mi libro
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
     </main>
   );
