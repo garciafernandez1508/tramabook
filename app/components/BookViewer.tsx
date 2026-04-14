@@ -29,9 +29,9 @@ type Theme = "light" | "dark";
 type Slide =
   | { type: "cover" }
   | { type: "map" }
-  | { type: "editorial"; photo: PhotoResult; preview: string }
+  | { type: "editorial"; photo: PhotoResult; preview: string; fillPreview?: string }
   | { type: "double"; photos: PhotoResult[]; previews: string[] }
-  | { type: "magazine"; photo: PhotoResult; preview: string }
+  | { type: "magazine"; photo: PhotoResult; preview: string; fillPreview?: string }
   | { type: "share" };
 
 const LAYOUT_SEQUENCES = [
@@ -53,14 +53,27 @@ function buildSlides(photos: PhotoResult[], previews: string[], hasMap: boolean,
   while (i < valid.length) {
     const remaining = valid.length - i;
     const layout = sequence[seqIdx % sequence.length];
+
     if (layout === "double" && remaining >= 2) {
-      slides.push({ type: "double", photos: valid.slice(i, i + 2), previews: valid.slice(i, i + 2).map(p => previews[p.index]) });
+      slides.push({
+        type: "double",
+        photos: valid.slice(i, i + 2),
+        previews: valid.slice(i, i + 2).map(p => previews[p.index])
+      });
       i += 2;
     } else if (layout === "magazine") {
-      slides.push({ type: "magazine", photo: valid[i], preview: previews[valid[i].index] });
+      const photo = valid[i];
+      const fillPreview = !photo.caption && valid[(i + 1) % valid.length]
+        ? previews[valid[(i + 1) % valid.length].index]
+        : undefined;
+      slides.push({ type: "magazine", photo, preview: previews[photo.index], fillPreview });
       i += 1;
     } else {
-      slides.push({ type: "editorial", photo: valid[i], preview: previews[valid[i].index] });
+      const photo = valid[i];
+      const fillPreview = !photo.caption && valid[(i + 1) % valid.length]
+        ? previews[valid[(i + 1) % valid.length].index]
+        : undefined;
+      slides.push({ type: "editorial", photo, preview: previews[photo.index], fillPreview });
       i += 1;
     }
     seqIdx++;
@@ -90,21 +103,26 @@ function EditableText({ value, onChange, className, multiline }: {
   );
 }
 
-function TextOrImagePanel({ theme }: { theme: Theme }) {
+function CustomPanel({ theme, panelKey, panelImages, setPanelImages }: {
+  theme: Theme;
+  panelKey: string;
+  panelImages: Record<string, string>;
+  setPanelImages: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+}) {
   const [mode, setMode] = useState<"text" | "image">("text");
   const [text, setText] = useState("");
-  const [imgSrc, setImgSrc] = useState<string | null>(null);
   const muted = theme === "dark" ? "text-white/40" : "text-gray-300";
   const textColor = theme === "dark" ? "text-white/70" : "text-gray-500";
   const border = theme === "dark" ? "border-white/10" : "border-gray-100";
+  const imgSrc = panelImages[panelKey];
 
   function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) setImgSrc(URL.createObjectURL(file));
+    if (file) setPanelImages(prev => ({ ...prev, [panelKey]: URL.createObjectURL(file) }));
   }
 
   return (
-    <div className={`flex-1 flex flex-col items-center justify-center border ${border} rounded-2xl p-4`}>
+    <div className={`flex-1 relative flex flex-col items-center justify-center border ${border} rounded-2xl overflow-hidden`}>
       <div className="flex gap-2 mb-3">
         <button onClick={() => setMode("text")} className={`text-xs px-3 py-1 rounded-full border ${mode === "text" ? "bg-gray-800 text-white border-gray-800" : `${muted} border-current`}`}>Texto</button>
         <button onClick={() => setMode("image")} className={`text-xs px-3 py-1 rounded-full border ${mode === "image" ? "bg-gray-800 text-white border-gray-800" : `${muted} border-current`}`}>Foto</button>
@@ -112,7 +130,9 @@ function TextOrImagePanel({ theme }: { theme: Theme }) {
       {mode === "text" ? (
         <EditableText value={text} onChange={setText} className={`text-sm ${textColor} text-center leading-relaxed w-full`} multiline />
       ) : imgSrc ? (
-        <img src={imgSrc} className="w-full h-full object-cover rounded-xl" />
+  <div className="absolute inset-0 rounded-2xl overflow-hidden">
+    <img src={imgSrc} className="w-full h-full object-cover" />
+  </div>
       ) : (
         <label className={`cursor-pointer text-xs ${muted} text-center`}>
           <span>Toca para añadir foto</span>
@@ -182,25 +202,21 @@ function MapSlide({ photos, theme, destinationCoords, destination }: {
   const bg = theme === "dark" ? "bg-black" : "bg-white";
   const muted = theme === "dark" ? "text-white/40" : "text-gray-400";
 
-  // Puntos GPS reales de las fotos
   const photoPoints = photos
     .filter(p => p.lat && p.lng)
-    .map(p => ({ lat: p.lat, lng: p.lng, name: p.place_name || "", emoji: p.emoji || "📍" }));
+    .map(p => ({ lat: p.lat, lng: p.lng, name: p.place_name || destination || "Lugar", emoji: p.emoji || "📍" }));
 
-  // Si no hay GPS en fotos pero hay destino escrito, usar ese punto
   const points = photoPoints.length > 0
     ? photoPoints
     : destinationCoords
       ? [{ lat: destinationCoords.lat, lng: destinationCoords.lng, name: destination || "Destino", emoji: "📍" }]
       : [];
 
-  const hasMap = points.length > 0;
-
   return (
     <div className={`w-full h-full flex flex-col ${bg} p-6`}>
       <p className={`text-xs tracking-widest uppercase ${muted} mb-4`}>Tramabook · Ruta del viaje</p>
       <div className="flex-1 rounded-2xl overflow-hidden">
-        {hasMap
+        {points.length > 0
           ? <TravelMap points={points} dark={theme === "dark"} />
           : <div className="w-full h-full flex items-center justify-center">
               <p className={`text-sm ${muted}`}>Sin ubicaciones GPS</p>
@@ -216,11 +232,15 @@ function MapSlide({ photos, theme, destinationCoords, destination }: {
   );
 }
 
-function EditorialSlide({ photo, preview, theme }: { photo: PhotoResult; preview: string; theme: Theme }) {
-  const [showText, setShowText] = useState(!!photo.caption);
+function EditorialSlide({ photo, preview, fillPreview, theme, panelKey, panelImages, setPanelImages }: {
+  photo: PhotoResult; preview: string; fillPreview?: string; theme: Theme;
+  panelKey: string;
+  panelImages: Record<string, string>;
+  setPanelImages: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+}) {
+  const [showCaption, setShowCaption] = useState(true);
   const [caption, setCaption] = useState(photo.caption || "");
   const bg = theme === "dark" ? "bg-black" : "bg-white";
-  const text = theme === "dark" ? "text-white" : "text-gray-900";
   const muted = theme === "dark" ? "text-white/50" : "text-gray-400";
   const borderColor = theme === "dark" ? "border-white/10" : "border-gray-100";
   const hasCaption = !!photo.caption;
@@ -235,27 +255,36 @@ function EditorialSlide({ photo, preview, theme }: { photo: PhotoResult; preview
           <>
             <div className="flex items-center justify-between mb-2">
               <span className={`text-xs ${muted}`}>toca para editar</span>
-              <button onClick={() => setShowText(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
-                {showText ? "ocultar" : "personalizar"}
+              <button onClick={() => setShowCaption(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
+                {showCaption ? "ocultar" : "personalizar"}
               </button>
             </div>
-            {showText ? (
+            {showCaption ? (
               <p className={`text-sm italic ${muted} leading-relaxed`}>
                 "<EditableText value={caption} onChange={setCaption} className={`text-sm italic ${muted}`} multiline />"
               </p>
             ) : (
-              <TextOrImagePanel theme={theme} />
+              <CustomPanel theme={theme} panelKey={panelKey} panelImages={panelImages} setPanelImages={setPanelImages} />
             )}
           </>
+        ) : fillPreview ? (
+          <div className="flex-1 rounded-2xl overflow-hidden">
+            <img src={fillPreview} className="w-full h-full object-cover" />
+          </div>
         ) : (
-          <TextOrImagePanel theme={theme} />
+          <CustomPanel theme={theme} panelKey={panelKey} panelImages={panelImages} setPanelImages={setPanelImages} />
         )}
       </div>
     </div>
   );
 }
 
-function DoubleSlide({ photos, previews, theme }: { photos: PhotoResult[]; previews: string[]; theme: Theme }) {
+function DoubleSlide({ photos, previews, theme, panelKey, panelImages, setPanelImages }: {
+  photos: PhotoResult[]; previews: string[]; theme: Theme;
+  panelKey: string;
+  panelImages: Record<string, string>;
+  setPanelImages: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+}) {
   const [show, setShow] = useState(photos.map(p => !!p.caption));
   const [captions, setCaptions] = useState(photos.map(p => p.caption || ""));
   const bg = theme === "dark" ? "bg-black" : "bg-white";
@@ -279,15 +308,16 @@ function DoubleSlide({ photos, previews, theme }: { photos: PhotoResult[]; previ
                 </div>
                 {show[i] ? (
                   <p className={`text-xs italic ${muted} leading-relaxed`}>
-                    "<EditableText value={captions[i]} onChange={v => setCaptions(prev => prev.map((c, idx) => idx === i ? v : c))}
+                    "<EditableText value={captions[i]}
+                      onChange={v => setCaptions(prev => prev.map((c, idx) => idx === i ? v : c))}
                       className={`text-xs italic ${muted}`} multiline />"
                   </p>
                 ) : (
-                  <TextOrImagePanel theme={theme} />
+                  <CustomPanel theme={theme} panelKey={`${panelKey}-${i}`} panelImages={panelImages} setPanelImages={setPanelImages} />
                 )}
               </>
             ) : (
-              <TextOrImagePanel theme={theme} />
+              <CustomPanel theme={theme} panelKey={`${panelKey}-${i}`} panelImages={panelImages} setPanelImages={setPanelImages} />
             )}
           </div>
         </div>
@@ -296,8 +326,13 @@ function DoubleSlide({ photos, previews, theme }: { photos: PhotoResult[]; previ
   );
 }
 
-function MagazineSlide({ photo, preview, theme }: { photo: PhotoResult; preview: string; theme: Theme }) {
-  const [showText, setShowText] = useState(!!photo.caption);
+function MagazineSlide({ photo, preview, fillPreview, theme, panelKey, panelImages, setPanelImages }: {
+  photo: PhotoResult; preview: string; fillPreview?: string; theme: Theme;
+  panelKey: string;
+  panelImages: Record<string, string>;
+  setPanelImages: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+}) {
+  const [showCaption, setShowCaption] = useState(true);
   const [caption, setCaption] = useState(photo.caption || "");
   const bg = theme === "dark" ? "bg-black" : "bg-white";
   const muted = theme === "dark" ? "text-white/50" : "text-gray-400";
@@ -310,22 +345,26 @@ function MagazineSlide({ photo, preview, theme }: { photo: PhotoResult; preview:
           <>
             <div className="flex items-center justify-between mb-3">
               <p className={`text-xs tracking-widest uppercase ${muted}`}>Tramabook</p>
-              <button onClick={() => setShowText(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
-                {showText ? "ocultar" : "personalizar"}
+              <button onClick={() => setShowCaption(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
+                {showCaption ? "ocultar" : "personalizar"}
               </button>
             </div>
-            {showText ? (
+            {showCaption ? (
               <p className={`text-sm italic ${muted} leading-relaxed`}>
                 "<EditableText value={caption} onChange={setCaption} className={`text-sm italic ${muted}`} multiline />"
               </p>
             ) : (
-              <TextOrImagePanel theme={theme} />
+              <CustomPanel theme={theme} panelKey={panelKey} panelImages={panelImages} setPanelImages={setPanelImages} />
             )}
           </>
+        ) : fillPreview ? (
+          <div className="w-full h-full rounded-2xl overflow-hidden">
+            <img src={fillPreview} className="w-full h-full object-cover" />
+          </div>
         ) : (
           <>
             <p className={`text-xs tracking-widest uppercase ${muted} mb-4`}>Tramabook</p>
-            <TextOrImagePanel theme={theme} />
+            <CustomPanel theme={theme} panelKey={panelKey} panelImages={panelImages} setPanelImages={setPanelImages} />
           </>
         )}
       </div>
@@ -362,6 +401,7 @@ export function BookViewer({ photos, previews, title, summary, coverImage, cover
   const [slides, setSlides] = useState<Slide[]>(() => buildSlides(photos, previews, hasMap, 0));
   const [current, setCurrent] = useState(0);
   const [theme, setTheme] = useState<Theme>("light");
+  const [panelImages, setPanelImages] = useState<Record<string, string>>({});
   const startX = useRef<number | null>(null);
   const startY = useRef<number | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
@@ -372,6 +412,7 @@ export function BookViewer({ photos, previews, title, summary, coverImage, cover
     setSeed(newSeed);
     setSlides(buildSlides(photos, previews, hasMap, newSeed));
     setCurrent(0);
+    setPanelImages({});
   }
 
   function goNext() { if (current < slides.length - 1) setCurrent(c => c + 1); }
@@ -463,9 +504,24 @@ export function BookViewer({ photos, previews, title, summary, coverImage, cover
       >
         {slide.type === "cover" && <CoverSlide title={title} summary={summary} coverImage={coverImage} template={coverTemplate} theme={theme} />}
         {slide.type === "map" && <MapSlide photos={photos} theme={theme} destinationCoords={destinationCoords} destination={destination} />}
-        {slide.type === "editorial" && <EditorialSlide photo={slide.photo} preview={slide.preview} theme={theme} />}
-        {slide.type === "double" && <DoubleSlide photos={slide.photos} previews={slide.previews} theme={theme} />}
-        {slide.type === "magazine" && <MagazineSlide photo={slide.photo} preview={slide.preview} theme={theme} />}
+        {slide.type === "editorial" && (
+          <EditorialSlide
+            photo={slide.photo} preview={slide.preview} fillPreview={slide.fillPreview} theme={theme}
+            panelKey={`editorial-${current}`} panelImages={panelImages} setPanelImages={setPanelImages}
+          />
+        )}
+        {slide.type === "double" && (
+          <DoubleSlide
+            photos={slide.photos} previews={slide.previews} theme={theme}
+            panelKey={`double-${current}`} panelImages={panelImages} setPanelImages={setPanelImages}
+          />
+        )}
+        {slide.type === "magazine" && (
+          <MagazineSlide
+            photo={slide.photo} preview={slide.preview} fillPreview={slide.fillPreview} theme={theme}
+            panelKey={`magazine-${current}`} panelImages={panelImages} setPanelImages={setPanelImages}
+          />
+        )}
         {slide.type === "share" && <ShareSlide title={title} theme={theme} />}
 
         <div className="absolute top-3 left-3 right-3 flex gap-1 z-20 pointer-events-none">
