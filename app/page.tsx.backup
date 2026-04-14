@@ -40,8 +40,6 @@ export default function Home() {
   const [files, setFiles] = useState<File[]>([]);
   const [book, setBook] = useState<BookResult | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
-  const [organize, setOrganize] = useState<"ai" | "date" | "place">("ai");
-  const [destination, setDestination] = useState("");
 
   async function generatePlan() {
     if (!location) return;
@@ -63,8 +61,8 @@ export default function Home() {
 
   async function handleFiles(selected: FileList) {
     const arr = Array.from(selected);
-    setFiles(prev => [...prev, ...arr]);
-    setPreviews(prev => [...prev, ...arr.map((f) => URL.createObjectURL(f))]);
+    setFiles(arr);
+    setPreviews(arr.map((f) => URL.createObjectURL(f)));
   }
 
   async function generateBook() {
@@ -76,13 +74,7 @@ export default function Home() {
         files.map(async (f) => {
           try {
             const gps = await exifr.gps(f);
-            const date = await exifr.parse(f, ["DateTimeOriginal"]);
-            return {
-              name: f.name,
-              lat: gps?.latitude,
-              lng: gps?.longitude,
-              date: date?.DateTimeOriginal?.toString() || null,
-            };
+            return { name: f.name, lat: gps?.latitude, lng: gps?.longitude };
           } catch {
             return { name: f.name };
           }
@@ -91,7 +83,7 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photos: photosData, organize, destination }),
+        body: JSON.stringify({ photos: photosData }),
       });
       const data = await res.json();
       setBook(data);
@@ -127,7 +119,7 @@ export default function Home() {
           )}
           {mode !== "home" && (
             <button
-              onClick={() => { setMode("home"); setPlaces([]); setBook(null); setFiles([]); setPreviews([]); setDestination(""); }}
+              onClick={() => { setMode("home"); setPlaces([]); setBook([]  as unknown as BookResult); setFiles([]); setPreviews([]); }}
               className="text-gray-400 hover:text-gray-600 text-sm"
             >
               ← Volver
@@ -191,27 +183,14 @@ export default function Home() {
 
         {mode === "book" && (
           <div>
-            <div className="mb-6">
-              <input
-                type="text"
-                placeholder="¿Dónde fue este viaje? Ej: Estepona, Costa del Sol (opcional)"
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                className="w-full border border-gray-200 rounded-2xl px-6 py-4 text-lg outline-none focus:border-gray-400"
-              />
-            </div>
-
             <div
-              className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center mb-6 hover:border-gray-400 transition-colors cursor-pointer"
+              className="border-2 border-dashed border-gray-200 rounded-2xl p-12 text-center mb-8 hover:border-gray-400 transition-colors cursor-pointer"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
               onClick={() => document.getElementById("fileInput")?.click()}
             >
-              <p className="text-gray-400 text-lg mb-1">Arrastra tus fotos aquí</p>
-              <p className="text-gray-300 text-sm mb-3">o haz clic para seleccionarlas</p>
-              {files.length > 0 && (
-                <p className="text-gray-500 text-sm font-medium">{files.length} fotos seleccionadas</p>
-              )}
+              <p className="text-gray-400 text-lg mb-2">Arrastra tus fotos aquí</p>
+              <p className="text-gray-300 text-sm">o haz clic para seleccionarlas</p>
               <input
                 id="fileInput"
                 type="file"
@@ -229,30 +208,7 @@ export default function Home() {
                     <img key={i} src={src} className="w-full h-24 object-cover rounded-xl" />
                   ))}
                 </div>
-
-                <div className="mb-6">
-                  <p className="text-gray-600 text-sm font-medium mb-3">Organizar el libro por:</p>
-                  <div className="flex gap-3">
-                    {[
-                      { value: "ai", label: "IA decide" },
-                      { value: "date", label: "Por día" },
-                      { value: "place", label: "Por lugar" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => setOrganize(opt.value as "ai" | "date" | "place")}
-                        className={`px-5 py-2 rounded-full text-sm font-medium transition-colors ${
-                          organize === opt.value
-                            ? "bg-black text-white"
-                            : "border border-gray-200 text-gray-600 hover:border-gray-400"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
+                <p className="text-gray-500 text-sm mb-6 text-center">{files.length} fotos seleccionadas</p>
                 <button
                   onClick={generateBook}
                   disabled={loading}

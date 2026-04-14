@@ -3,30 +3,37 @@ import Anthropic from "@anthropic-ai/sdk";
 const client = new Anthropic();
 
 export async function POST(request: Request) {
-  const { photos } = await request.json();
+  const { photos, organize } = await request.json();
 
-  const prompt = `Eres un experto en viajes y fotografía. El usuario ha compartido fotos de su viaje con estas ubicaciones GPS y nombres de archivo:
+  const prompt = `Eres un experto en viajes y fotografía. El usuario ha compartido fotos de su viaje.
 
-${photos.map((p: { name: string; lat?: number; lng?: number }, i: number) => 
-  `Foto ${i + 1}: ${p.name} ${p.lat ? `(lat: ${p.lat}, lng: ${p.lng})` : "(sin GPS)"}`
+Datos de las fotos:
+${photos.map((p: { name: string; lat?: number; lng?: number; date?: string }, i: number) =>
+  `Foto ${i + 1}: ${p.name} ${p.lat ? `(GPS: lat ${p.lat}, lng ${p.lng})` : "(sin GPS)"} ${p.date ? `(fecha: ${p.date})` : ""}`
 ).join("\n")}
 
-Para cada foto, identifica el lugar más probable y genera contenido para su libro de viaje.
+Organización solicitada: ${organize === "date" ? "por día" : organize === "place" ? "por lugar" : "la que consideres mejor"}
 
-Responde ÚNICAMENTE con JSON puro, sin markdown ni texto extra:
+INSTRUCCIONES IMPORTANTES:
+- Si la foto TIENE coordenadas GPS, identifica el lugar exacto y genera una curiosidad real sobre ese lugar
+- Si la foto NO tiene GPS, pon place_name como null y solo genera un caption poético sobre lo que podría verse
+- Nunca inventes una localización si no hay GPS
+- El título y resumen deben basarse solo en las fotos con GPS conocido
+
+Responde ÚNICAMENTE con JSON puro:
 {
-  "title": "título evocador del viaje completo",
-  "summary": "resumen del viaje en 2-3 frases",
+  "title": "título evocador del viaje",
+  "summary": "resumen breve del viaje",
   "photos": [
     {
       "index": 0,
-      "place_name": "nombre del lugar identificado",
-      "country": "país",
-      "curiosity": "curiosidad interesante sobre ese lugar",
-      "caption": "pie de foto poético y evocador",
+      "place_name": "nombre del lugar o null si no hay GPS",
+      "country": "país o null",
+      "curiosity": "curiosidad real del lugar o null si no hay GPS",
+      "caption": "pie de foto poético",
       "emoji": "emoji representativo",
-      "lat": latitud,
-      "lng": longitud
+      "lat": numero o null,
+      "lng": numero o null
     }
   ]
 }`;
