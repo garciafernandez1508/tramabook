@@ -20,6 +20,8 @@ type BookViewerProps = {
   summary: string;
   coverImage: string;
   coverTemplate: "cine" | "revista" | "minimal";
+  destinationCoords?: { lat: number; lng: number } | null;
+  destination?: string | null;
 };
 
 type Theme = "light" | "dark";
@@ -51,7 +53,6 @@ function buildSlides(photos: PhotoResult[], previews: string[], hasMap: boolean,
   while (i < valid.length) {
     const remaining = valid.length - i;
     const layout = sequence[seqIdx % sequence.length];
-
     if (layout === "double" && remaining >= 2) {
       slides.push({ type: "double", photos: valid.slice(i, i + 2), previews: valid.slice(i, i + 2).map(p => previews[p.index]) });
       i += 2;
@@ -75,37 +76,23 @@ function EditableText({ value, onChange, className, multiline }: {
   const [editing, setEditing] = useState(false);
   if (editing) {
     return multiline ? (
-      <textarea
-        autoFocus
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onBlur={() => setEditing(false)}
-        className={`${className} bg-transparent border-b border-current outline-none resize-none w-full`}
-        rows={3}
-      />
+      <textarea autoFocus value={value} onChange={e => onChange(e.target.value)} onBlur={() => setEditing(false)}
+        className={`${className} bg-transparent border-b border-current outline-none resize-none w-full`} rows={3} />
     ) : (
-      <input
-        autoFocus
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onBlur={() => setEditing(false)}
-        className={`${className} bg-transparent border-b border-current outline-none w-full`}
-      />
+      <input autoFocus value={value} onChange={e => onChange(e.target.value)} onBlur={() => setEditing(false)}
+        className={`${className} bg-transparent border-b border-current outline-none w-full`} />
     );
   }
   return (
-    <span
-      className={`${className} cursor-text border-b border-transparent hover:border-current transition-colors`}
-      onClick={() => setEditing(true)}
-    >
-      {value || "Toca para escribir..."}
+    <span className={`${className} cursor-text border-b border-transparent hover:border-current transition-colors`} onClick={() => setEditing(true)}>
+      {value}
     </span>
   );
 }
 
-function TextOrImagePanel({ theme, defaultText }: { theme: Theme; defaultText: string }) {
+function TextOrImagePanel({ theme }: { theme: Theme }) {
   const [mode, setMode] = useState<"text" | "image">("text");
-  const [text, setText] = useState(defaultText);
+  const [text, setText] = useState("");
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const muted = theme === "dark" ? "text-white/40" : "text-gray-300";
   const textColor = theme === "dark" ? "text-white/70" : "text-gray-500";
@@ -123,7 +110,7 @@ function TextOrImagePanel({ theme, defaultText }: { theme: Theme; defaultText: s
         <button onClick={() => setMode("image")} className={`text-xs px-3 py-1 rounded-full border ${mode === "image" ? "bg-gray-800 text-white border-gray-800" : `${muted} border-current`}`}>Foto</button>
       </div>
       {mode === "text" ? (
-        <EditableText value={text} onChange={setText} className={`text-sm ${textColor} text-center leading-relaxed`} multiline />
+        <EditableText value={text} onChange={setText} className={`text-sm ${textColor} text-center leading-relaxed w-full`} multiline />
       ) : imgSrc ? (
         <img src={imgSrc} className="w-full h-full object-cover rounded-xl" />
       ) : (
@@ -187,33 +174,56 @@ function CoverSlide({ title, summary, coverImage, template, theme }: {
   );
 }
 
-function MapSlide({ photos, theme }: { photos: PhotoResult[]; theme: Theme }) {
-  const validPoints = photos.filter(p => p.lat && p.lng).map(p => ({
-    lat: p.lat, lng: p.lng, name: p.place_name, emoji: p.emoji,
-  }));
+function MapSlide({ photos, theme, destinationCoords, destination }: {
+  photos: PhotoResult[]; theme: Theme;
+  destinationCoords?: { lat: number; lng: number } | null;
+  destination?: string | null;
+}) {
   const bg = theme === "dark" ? "bg-black" : "bg-white";
   const muted = theme === "dark" ? "text-white/40" : "text-gray-400";
+
+  // Puntos GPS reales de las fotos
+  const photoPoints = photos
+    .filter(p => p.lat && p.lng)
+    .map(p => ({ lat: p.lat, lng: p.lng, name: p.place_name || "", emoji: p.emoji || "📍" }));
+
+  // Si no hay GPS en fotos pero hay destino escrito, usar ese punto
+  const points = photoPoints.length > 0
+    ? photoPoints
+    : destinationCoords
+      ? [{ lat: destinationCoords.lat, lng: destinationCoords.lng, name: destination || "Destino", emoji: "📍" }]
+      : [];
+
+  const hasMap = points.length > 0;
 
   return (
     <div className={`w-full h-full flex flex-col ${bg} p-6`}>
       <p className={`text-xs tracking-widest uppercase ${muted} mb-4`}>Tramabook · Ruta del viaje</p>
       <div className="flex-1 rounded-2xl overflow-hidden">
-        <TravelMap points={validPoints} dark={theme === "dark"} />
+        {hasMap
+          ? <TravelMap points={points} dark={theme === "dark"} />
+          : <div className="w-full h-full flex items-center justify-center">
+              <p className={`text-sm ${muted}`}>Sin ubicaciones GPS</p>
+            </div>
+        }
       </div>
-      <p className={`text-xs ${muted} mt-4`}>{validPoints.length} lugares visitados</p>
+      <p className={`text-xs ${muted} mt-4`}>
+        {photoPoints.length > 0
+          ? `${photoPoints.length} lugares visitados`
+          : destination ? `📍 ${destination}` : ""}
+      </p>
     </div>
   );
 }
 
 function EditorialSlide({ photo, preview, theme }: { photo: PhotoResult; preview: string; theme: Theme }) {
-  const [showText, setShowText] = useState(true);
-  const [place, setPlace] = useState(photo.place_name || "");
+  const [showText, setShowText] = useState(!!photo.caption);
   const [caption, setCaption] = useState(photo.caption || "");
-  const [curiosity, setCuriosity] = useState(photo.curiosity || "");
   const bg = theme === "dark" ? "bg-black" : "bg-white";
   const text = theme === "dark" ? "text-white" : "text-gray-900";
   const muted = theme === "dark" ? "text-white/50" : "text-gray-400";
   const borderColor = theme === "dark" ? "border-white/10" : "border-gray-100";
+  const hasCaption = !!photo.caption;
 
   return (
     <div className={`w-full h-full flex flex-col ${bg} p-5`}>
@@ -221,32 +231,24 @@ function EditorialSlide({ photo, preview, theme }: { photo: PhotoResult; preview
         <img src={preview} className="w-full h-full object-cover" />
       </div>
       <div className="flex-1 pt-3 flex flex-col justify-center">
-        <div className="flex items-center justify-between mb-2">
-          <span className={`text-xs ${muted}`}>toca para editar</span>
-          <button onClick={() => setShowText(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
-            {showText ? "ocultar" : "personalizar"}
-          </button>
-        </div>
-        {showText ? (
+        {hasCaption ? (
           <>
-            {place && (
-              <p className={`text-base font-semibold ${text} mb-1`}>
-                {photo.emoji} <EditableText value={place} onChange={setPlace} className={`text-base font-semibold ${text}`} />
-              </p>
-            )}
-            {caption && (
-              <p className={`text-sm italic ${muted} leading-relaxed mb-2`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className={`text-xs ${muted}`}>toca para editar</span>
+              <button onClick={() => setShowText(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
+                {showText ? "ocultar" : "personalizar"}
+              </button>
+            </div>
+            {showText ? (
+              <p className={`text-sm italic ${muted} leading-relaxed`}>
                 "<EditableText value={caption} onChange={setCaption} className={`text-sm italic ${muted}`} multiline />"
               </p>
-            )}
-            {curiosity && place && (
-              <p className={`text-xs ${muted} leading-relaxed`}>
-                ✨ <EditableText value={curiosity} onChange={setCuriosity} className={`text-xs ${muted}`} multiline />
-              </p>
+            ) : (
+              <TextOrImagePanel theme={theme} />
             )}
           </>
         ) : (
-          <TextOrImagePanel theme={theme} defaultText="" />
+          <TextOrImagePanel theme={theme} />
         )}
       </div>
     </div>
@@ -254,11 +256,9 @@ function EditorialSlide({ photo, preview, theme }: { photo: PhotoResult; preview
 }
 
 function DoubleSlide({ photos, previews, theme }: { photos: PhotoResult[]; previews: string[]; theme: Theme }) {
-  const [show, setShow] = useState([true, true]);
-  const [places, setPlaces] = useState(photos.map(p => p.place_name || ""));
+  const [show, setShow] = useState(photos.map(p => !!p.caption));
   const [captions, setCaptions] = useState(photos.map(p => p.caption || ""));
   const bg = theme === "dark" ? "bg-black" : "bg-white";
-  const text = theme === "dark" ? "text-white" : "text-gray-900";
   const muted = theme === "dark" ? "text-white/50" : "text-gray-400";
 
   return (
@@ -269,26 +269,25 @@ function DoubleSlide({ photos, previews, theme }: { photos: PhotoResult[]; previ
             <img src={src} className="w-full h-full object-cover" />
           </div>
           <div className="w-1/2 h-full flex flex-col justify-center pr-1">
-            <div className="flex justify-end mb-1">
-              <button onClick={() => setShow(prev => prev.map((v, idx) => idx === i ? !v : v))} className={`text-xs ${muted} border border-current px-1.5 py-0.5 rounded-full`}>
-                {show[i] ? "ocultar" : "personalizar"}
-              </button>
-            </div>
-            {show[i] ? (
+            {photos[i]?.caption ? (
               <>
-                {places[i] && (
-                  <p className={`text-sm font-semibold ${text} mb-1 leading-tight`}>
-                    {photos[i].emoji} <EditableText value={places[i]} onChange={v => setPlaces(prev => prev.map((p, idx) => idx === i ? v : p))} className={`text-sm font-semibold ${text}`} />
-                  </p>
-                )}
-                {captions[i] && (
+                <div className="flex justify-end mb-1">
+                  <button onClick={() => setShow(prev => prev.map((v, idx) => idx === i ? !v : v))}
+                    className={`text-xs ${muted} border border-current px-1.5 py-0.5 rounded-full`}>
+                    {show[i] ? "ocultar" : "personalizar"}
+                  </button>
+                </div>
+                {show[i] ? (
                   <p className={`text-xs italic ${muted} leading-relaxed`}>
-                    "<EditableText value={captions[i]} onChange={v => setCaptions(prev => prev.map((c, idx) => idx === i ? v : c))} className={`text-xs italic ${muted}`} multiline />"
+                    "<EditableText value={captions[i]} onChange={v => setCaptions(prev => prev.map((c, idx) => idx === i ? v : c))}
+                      className={`text-xs italic ${muted}`} multiline />"
                   </p>
+                ) : (
+                  <TextOrImagePanel theme={theme} />
                 )}
               </>
             ) : (
-              <TextOrImagePanel theme={theme} defaultText="" />
+              <TextOrImagePanel theme={theme} />
             )}
           </div>
         </div>
@@ -298,45 +297,36 @@ function DoubleSlide({ photos, previews, theme }: { photos: PhotoResult[]; previ
 }
 
 function MagazineSlide({ photo, preview, theme }: { photo: PhotoResult; preview: string; theme: Theme }) {
-  const [showText, setShowText] = useState(true);
-  const [place, setPlace] = useState(photo.place_name || "");
+  const [showText, setShowText] = useState(!!photo.caption);
   const [caption, setCaption] = useState(photo.caption || "");
-  const [curiosity, setCuriosity] = useState(photo.curiosity || "");
   const bg = theme === "dark" ? "bg-black" : "bg-white";
-  const text = theme === "dark" ? "text-white" : "text-gray-900";
   const muted = theme === "dark" ? "text-white/50" : "text-gray-400";
-  const divider = theme === "dark" ? "bg-white/10" : "bg-gray-100";
+  const hasCaption = !!photo.caption;
 
   return (
     <div className={`w-full h-full flex flex-col ${bg}`}>
       <div className="flex-1 p-6 flex flex-col justify-center">
-        <div className="flex items-center justify-between mb-3">
-          <p className={`text-xs tracking-widest uppercase ${muted}`}>Tramabook</p>
-          <button onClick={() => setShowText(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
-            {showText ? "ocultar" : "personalizar"}
-          </button>
-        </div>
-        {showText ? (
+        {hasCaption ? (
           <>
-            {place && (
-              <h2 className={`text-2xl font-bold ${text} leading-tight mb-3`}>
-                {photo.emoji} <EditableText value={place} onChange={setPlace} className={`text-2xl font-bold ${text}`} />
-              </h2>
-            )}
-            <div className={`w-6 h-px ${divider} mb-3`} />
-            {caption && (
-              <p className={`text-sm italic ${muted} leading-relaxed mb-2`}>
+            <div className="flex items-center justify-between mb-3">
+              <p className={`text-xs tracking-widest uppercase ${muted}`}>Tramabook</p>
+              <button onClick={() => setShowText(v => !v)} className={`text-xs ${muted} border border-current px-2 py-0.5 rounded-full`}>
+                {showText ? "ocultar" : "personalizar"}
+              </button>
+            </div>
+            {showText ? (
+              <p className={`text-sm italic ${muted} leading-relaxed`}>
                 "<EditableText value={caption} onChange={setCaption} className={`text-sm italic ${muted}`} multiline />"
               </p>
-            )}
-            {curiosity && place && (
-              <p className={`text-xs ${muted} leading-relaxed`}>
-                ✨ <EditableText value={curiosity} onChange={setCuriosity} className={`text-xs ${muted}`} multiline />
-              </p>
+            ) : (
+              <TextOrImagePanel theme={theme} />
             )}
           </>
         ) : (
-          <TextOrImagePanel theme={theme} defaultText="" />
+          <>
+            <p className={`text-xs tracking-widest uppercase ${muted} mb-4`}>Tramabook</p>
+            <TextOrImagePanel theme={theme} />
+          </>
         )}
       </div>
       <div className="flex-[1.2] overflow-hidden">
@@ -366,8 +356,8 @@ function ShareSlide({ title, theme }: { title: string; theme: Theme }) {
   );
 }
 
-export function BookViewer({ photos, previews, title, summary, coverImage, coverTemplate }: BookViewerProps) {
-  const hasMap = photos.some(p => p.lat && p.lng);
+export function BookViewer({ photos, previews, title, summary, coverImage, coverTemplate, destinationCoords, destination }: BookViewerProps) {
+  const hasMap = photos.some(p => p.lat && p.lng) || !!destinationCoords;
   const [seed, setSeed] = useState(0);
   const [slides, setSlides] = useState<Slide[]>(() => buildSlides(photos, previews, hasMap, 0));
   const [current, setCurrent] = useState(0);
@@ -472,7 +462,7 @@ export function BookViewer({ photos, previews, title, summary, coverImage, cover
         onMouseLeave={handleMouseUp}
       >
         {slide.type === "cover" && <CoverSlide title={title} summary={summary} coverImage={coverImage} template={coverTemplate} theme={theme} />}
-        {slide.type === "map" && <MapSlide photos={photos} theme={theme} />}
+        {slide.type === "map" && <MapSlide photos={photos} theme={theme} destinationCoords={destinationCoords} destination={destination} />}
         {slide.type === "editorial" && <EditorialSlide photo={slide.photo} preview={slide.preview} theme={theme} />}
         {slide.type === "double" && <DoubleSlide photos={slide.photos} previews={slide.previews} theme={theme} />}
         {slide.type === "magazine" && <MagazineSlide photo={slide.photo} preview={slide.preview} theme={theme} />}

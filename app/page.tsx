@@ -32,6 +32,8 @@ type BookResult = {
   title: string;
   summary: string;
   photos: PhotoResult[];
+  destinationCoords?: { lat: number; lng: number } | null;
+  destination?: string | null;
 };
 
 export default function Home() {
@@ -157,7 +159,6 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-white px-6 py-16">
       <div className="max-w-3xl mx-auto">
-
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-gray-900 mb-4">Tramabook</h1>
           <p className="text-xl text-gray-500 mb-8">Tu compañero de viaje con IA</p>
@@ -223,7 +224,7 @@ export default function Home() {
             <div className="mb-6">
               <input
                 type="text"
-                placeholder="¿Dónde fue este viaje? Ej: Estepona, Costa del Sol (opcional)"
+                placeholder="¿Dónde fue este viaje? Ej: Móstoles, Madrid (opcional)"
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
                 className="w-full border border-gray-200 rounded-2xl px-6 py-4 text-lg outline-none focus:border-gray-400"
@@ -330,6 +331,8 @@ export default function Home() {
               summary={book.summary}
               coverImage={previews[0]}
               coverTemplate={coverTemplate}
+              destinationCoords={book.destinationCoords}
+              destination={book.destination}
             />
 
             <div className="mt-8 text-center">
@@ -339,7 +342,6 @@ export default function Home() {
             </div>
           </div>
         )}
-
       </div>
     </main>
   );
